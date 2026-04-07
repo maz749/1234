@@ -1,0 +1,73 @@
+
+services:
+  # ── PostgreSQL ──────────────────────────────────────────────────────────────
+  db:
+    image: postgres:16-alpine
+    container_name: facade-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB:       facade
+      POSTGRES_USER:     facade_user
+      POSTGRES_PASSWORD: secret
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U facade_user -d facade"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # ── Backend API (Go) ────────────────────────────────────────────────────────
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: facade-backend
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DB_HOST:     db
+      DB_PORT:     "5432"
+      DB_USER:     facade_user
+      DB_PASSWORD: secret
+      DB_NAME:     facade
+      JWT_SECRET:  super-secret-key-change-in-production
+      AI_SERVICE_URL: http://ai-service:8000
+      PORT:        "8080"
+    ports:
+      - "8080:8080"
+
+  # ── AI Service (Python) ─────────────────────────────────────────────────────
+  ai-service:
+    build:
+      context: ./ai-service
+      dockerfile: Dockerfile
+    container_name: facade-ai
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      PORT: "8000"
+
+  # ── Frontend (Next.js) ──────────────────────────────────────────────────────
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: facade-frontend
+    restart: unless-stopped
+    depends_on:
+      - backend
+      - ai-service
+    environment:
+      NEXT_PUBLIC_API_URL: http://localhost:8080
+      NEXT_PUBLIC_AI_URL:  http://localhost:8000
+    ports:
+      - "3000:3000"
+
+volumes:
+  postgres_data:
